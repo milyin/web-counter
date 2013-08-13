@@ -35,8 +35,8 @@ dstatusAction dvar = do
 
 countAction :: AcidState Stats -> ServerPart Response
 countAction acidStats = do
-    c0::Int <- query' acidStats PeekStat
-    c1::Int <- update' acidStats IncStat
+    c0::Int <- query' acidStats PeekStatsCount
+    c1::Int <- update' acidStats IncStatsCount
     ok $ toResponse $ H.toHtml $ concat $ intersperse "," $ map show [c0, c1]
 
 main = do
