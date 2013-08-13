@@ -4,7 +4,7 @@ module DStatus (
     new,
     measure,
     logAccess,
-    display
+    DStatus
 ) where
 
 import Control.Monad.Trans
@@ -111,8 +111,3 @@ htmlDStatus dstatus = H.table ! A.border "1" $ do
             H.td $ H.toHtml $ show $ maxTime stat
             H.td $ H.toHtml $ show $ totalTime stat
 
-
-display :: TVar DStatus -> ServerPart Response
-display dvar = do 
-    dstatus <- lift $ readTVarIO dvar 
-    ok $ toResponse $ H.toHtml $ dstatus

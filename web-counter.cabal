@@ -21,7 +21,8 @@ Executable web-counter
     hs-source-dirs:     src
     main-is:            Main.hs
     build-depends:      base >=4, time, split, network, bytestring, containers, stm, mtl, 
-                        blaze-html, blaze-markup, happstack-server
+                        blaze-html, blaze-markup, happstack-server, iproute, safecopy, acid-state,
+                        ixset
     
 Test-Suite test-web-counter
     default-language:   Haskell2010
