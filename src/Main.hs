@@ -24,6 +24,7 @@ import Stat
 import Data.Time.LocalTime
 import Data.Time.Clock
 import Data.IxSet
+import Data.Maybe
 
 data PointImg = PointImg
 instance ToMessage PointImg where
@@ -49,23 +50,17 @@ dstatusAction acidStats dvar = do
     dstatus <- lift $ readTVarIO dvar
     stats <- query' acidStats PeekStats
     ok $ toResponse $ H.body $ do
-        H.toHtml $ size stats
+        H.toHtml (size stats) >> H.toHtml " records"
         H.hr
         H.toHtml $ dstatus
-
-countAction :: AcidState Stats -> ServerPart Response
-countAction acidStats = do
-    c0::Int <- query' acidStats PeekStatsCount
-    c1::Int <- update' acidStats IncStatsCount
-    ok $ toResponse $ H.toHtml $ concat $ intersperse "," $ map show [c0, c1]
 
 trAction :: AcidState Stats -> ServerPart Response
 trAction acidStats = do
 --    headers <- rqHeaders `liftM` askRq
 --    lift $ putStrLn $ show headers
-    referer <- (getHeader "referer") `liftM` askRq
+    referer <- (fromMaybe B.empty . getHeader "referer") `liftM` askRq
     clientIp <- (fst.rqPeer) `liftM` askRq
-    time <- lift getCurrentTime
+    time <- liftIO getCurrentTime
     let visit = Visit { vzTime = time, vzClientIp = clientIp, vzReferer = referer }
     update' acidStats (IncStats $ makeIndex visit)
     ok $ toResponse PointImg
@@ -78,7 +73,6 @@ main = do
         (createCheckpointAndClose)
         (\acidStats -> simpleHTTP conf $ msum [
             dir "dstatus"     $ measure dvar $ dstatusAction acidStats dvar,
-            dir "count"       $ measure dvar $ countAction acidStats,
             dir "tr"          $ measure dvar $ trAction acidStats,
             dir "favicon.ico" $ measure dvar $ serveFile (asContentType "image/vnd.microsoft.icon") "favicon.ico",
             dir "static"      $ measure dvar $ serveDirectory EnableBrowsing [] "html" 

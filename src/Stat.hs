@@ -24,16 +24,13 @@ import Data.Lens.IxSet (ixLens)
 newtype Url = Url B.ByteString  deriving (Eq, Ord, Read, Show, Data, Typeable, SafeCopy)
 newtype DayHour = DayHour Int8 deriving (Eq, Ord, Read, Show, Data, Typeable, SafeCopy)
 
-localDayHour :: LocalTime -> DayHour
-localDayHour localTime = DayHour $ fromIntegral $ todHour $ localTimeOfDay localTime
-
 newtype Region = Region String
     deriving (Eq, Ord, Read, Show, Data, Typeable)
 
 data Visit = Visit {
     vzTime     :: UTCTime,
     vzClientIp :: String,
-    vzReferer  :: Maybe B.ByteString
+    vzReferer  :: B.ByteString
     } deriving (Show)
 
 data StatIndex = StatIndex {
@@ -47,7 +44,7 @@ $(makeLens ''StatIndex)
 
 makeIndex :: Visit -> StatIndex
 makeIndex visit = StatIndex {
-    _statUrl    = Url $ maybe B.empty id $ vzReferer $ visit,
+    _statUrl    = Url $ vzReferer $ visit,
     _statDay    = localDay visitLocalTime,
     _statHour   = localDayHour visitLocalTime,
     _statRegion = ip2region $ vzClientIp visit
@@ -76,8 +73,7 @@ instance Indexable Stat where
         ]
 
 data Stats = Stats {
-    _statsSet :: IxSet Stat,
-    _statsCount :: Int
+    _statsSet :: IxSet Stat
     } deriving (Data, Typeable)
 
 $(makeLens ''Stats)
@@ -85,17 +81,7 @@ $(makeLens ''Stats)
 stat :: (Typeable key) => key -> Lens (IxSet Stat) (Maybe Stat)
 stat key = ixLens key
 
-initialStats = Stats { _statsSet = empty, _statsCount = 0 }
-
-incStatsCount :: Update Stats Int
-incStatsCount = do
-    s <- get
-    let new_s = (statsCount ^%= succ) s 
-    put $ new_s
-    return $ statsCount ^$ new_s
-
-peekStatsCount :: Query Stats Int
-peekStatsCount = getL statsCount <$> ask
+initialStats = Stats { _statsSet = empty }
 
 incStats :: StatIndex -> Update Stats Int
 incStats index = do
@@ -108,7 +94,7 @@ incStats index = do
 peekStats :: Query Stats (IxSet Stat)
 peekStats = getL statsSet <$> ask
 
-$(makeAcidic ''Stats ['incStatsCount, 'peekStatsCount, 'incStats, 'peekStats])
+$(makeAcidic ''Stats ['incStats, 'peekStats])
 $(deriveSafeCopy 0 'base ''Region)
 $(deriveSafeCopy 0 'base ''StatIndex)
 $(deriveSafeCopy 0 'base ''Stat)
