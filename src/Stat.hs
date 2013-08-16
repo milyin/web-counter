@@ -8,6 +8,7 @@ import Data.Time
 import Data.Time.Calendar
 import Data.Int
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as C
 import Data.Acid
 import Data.SafeCopy
 import Data.Data
@@ -30,10 +31,10 @@ newtype Region = Region String
     deriving (Eq, Ord, Read, Show, Data, Typeable)
 
 data Visit = Visit {
-    visitTime :: UTCTime,
-    visitIp   :: Either IPv4 IPv6,
-    visitUrl  :: Url
-    }
+    vzTime     :: UTCTime,
+    vzClientIp :: String,
+    vzReferer  :: Maybe B.ByteString
+    } deriving (Show)
 
 data StatIndex = StatIndex {
     _statUrl    :: Url,
@@ -44,18 +45,18 @@ data StatIndex = StatIndex {
 
 $(makeLens ''StatIndex)
 
-visit2index :: TimeZone -> Visit -> StatIndex
-visit2index tz visit = StatIndex {
-    _statUrl    = visitUrl visit,
+makeIndex :: Visit -> StatIndex
+makeIndex visit = StatIndex {
+    _statUrl    = Url $ maybe B.empty id $ vzReferer $ visit,
     _statDay    = localDay visitLocalTime,
     _statHour   = localDayHour visitLocalTime,
-    _statRegion = ip2region $ visitIp visit
+    _statRegion = ip2region $ vzClientIp visit
     } where
-        visitLocalTime = utcToLocalTime tz $ visitTime visit
+        visitLocalTime = utcToLocalTime utc $ vzTime visit
+        localDayHour localTime = DayHour $ fromIntegral $ todHour $ localTimeOfDay localTime
 
-ip2region :: (Either IPv4 IPv6) -> Region
-ip2region (Left _) = Region "IPv4"
-ip2region (Right _) = Region "IPv6"
+ip2region :: String -> Region
+ip2region s = Region s
 
 data Stat = Stat {
     _statIndex  :: StatIndex,
@@ -104,7 +105,10 @@ incStats index = do
     put $ new_s
     return $ statCount ^$ rec
 
-$(makeAcidic ''Stats ['incStatsCount, 'peekStatsCount, 'incStats])
+peekStats :: Query Stats (IxSet Stat)
+peekStats = getL statsSet <$> ask
+
+$(makeAcidic ''Stats ['incStatsCount, 'peekStatsCount, 'incStats, 'peekStats])
 $(deriveSafeCopy 0 'base ''Region)
 $(deriveSafeCopy 0 'base ''StatIndex)
 $(deriveSafeCopy 0 'base ''Stat)
