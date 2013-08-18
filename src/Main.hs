@@ -7,7 +7,7 @@ import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy.Char8 as L
 import Happstack.Server
 import qualified DStatus
-import DStatus (measure, DStatus)
+import DStatus (DStatus)
 import qualified Stat
 import Control.Exception.Base
 import Control.Concurrent.STM
@@ -58,12 +58,19 @@ trAction :: AcidState Stats -> ServerPart Response
 trAction acidStats = do
 --    headers <- rqHeaders `liftM` askRq
 --    lift $ putStrLn $ show headers
-    referer <- (fromMaybe B.empty . getHeader "referer") `liftM` askRq
+    referer <- require $ (getHeader "referer") `liftM` askRq
     clientIp <- (fst.rqPeer) `liftM` askRq
     time <- liftIO getCurrentTime
     let visit = Visit { vzTime = time, vzClientIp = clientIp, vzReferer = referer }
     update' acidStats (IncStats $ makeIndex visit)
     ok $ toResponse PointImg
+    where
+    require :: ServerPart (Maybe v) -> ServerPart v
+    require a = a >>= \mv -> maybe interrupt return mv
+    interrupt = finishWith $ toResponse PointImg
+
+-- jsonDataAction :: AcidState Stats -> ServerPart Response
+-- jsonDataAction 
 
 main = do
     dvar <- DStatus.new
@@ -71,11 +78,11 @@ main = do
     bracket 
         (openLocalState initialStats)
         (createCheckpointAndClose)
-        (\acidStats -> simpleHTTP conf $ msum [
-            dir "dstatus"     $ measure dvar $ dstatusAction acidStats dvar,
-            dir "tr"          $ measure dvar $ trAction acidStats,
-            dir "favicon.ico" $ measure dvar $ serveFile (asContentType "image/vnd.microsoft.icon") "favicon.ico",
-            dir "static"      $ measure dvar $ serveDirectory EnableBrowsing [] "html" 
+        (\acidStats -> simpleHTTP conf $ mapServerPartT' (DStatus.measure dvar) $ msum [
+            dir "dstatus"     $ dstatusAction acidStats dvar,
+            dir "tr"          $ trAction acidStats,
+            dir "favicon.ico" $ serveFile (asContentType "image/vnd.microsoft.icon") "favicon.ico",
+            dir "static"      $ serveDirectory EnableBrowsing [] "html" 
         ])
 
 

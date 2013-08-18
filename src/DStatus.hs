@@ -66,21 +66,16 @@ topPath url = case parseURIReference url of
     Nothing  -> ""
     Just uri -> head $ tail $ (splitOn "/" $ uriPath uri) ++ (repeat "")
 
-measure :: TVar DStatus -> ServerPart Response -> ServerPart Response
-measure dstatusVar action = do
-    rq <- askRq
+measure :: (MonadIO m) => TVar DStatus -> Request -> UnWebT m a -> UnWebT m a
+measure dvar rq m = do
     let page = C.pack $ topPath $ rqUri rq
-    measureNamed dstatusVar page action
-
-measureNamed :: TVar DStatus -> B.ByteString -> ServerPart Response -> ServerPart Response
-measureNamed dstatusVar page action = do
-    dstatus <- lift $ readTVarIO dstatusVar
-    start <- lift getCurrentTime
-    resp <- action
-    stop <- resp `seq` (lift getCurrentTime)
+    dstatus <- liftIO $ readTVarIO dvar
+    start <- liftIO getCurrentTime
+    job <- m
+    stop <- job `seq` (liftIO getCurrentTime)
     let time = diffUTCTime stop start
-    lift $ atomically $ modifyTVar dstatusVar $ measureVisit page time     
-    return resp
+    liftIO $ atomically $ modifyTVar dvar $ measureVisit page time     
+    return job
 
 new :: IO (TVar DStatus)
 new = newTVarIO (DStatus Map.empty)
@@ -110,4 +105,3 @@ htmlDStatus dstatus = H.table ! A.border "1" $ do
             H.td $ H.toHtml $ show $ avgTime stat
             H.td $ H.toHtml $ show $ maxTime stat
             H.td $ H.toHtml $ show $ totalTime stat
-
