@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, TemplateHaskell #-}
 
 module Main where
 
@@ -25,28 +25,63 @@ import Data.Time.LocalTime
 import Data.Time.Clock
 import Data.IxSet
 import Data.Maybe
+import System.Console.GetOpt
+import Data.Lens.Common
+import Data.Lens.Template (makeLens)
+import System.Environment
 
 data PointImg = PointImg
 instance ToMessage PointImg where
     toContentType _ = C.pack "image/gif"
-    toMessage _ = L.pack 
+    toMessage _ = L.pack
         "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\
         \\x80\x00\x00\xFF\xFF\xFF\x00\x00\x00\x21\
         \\xF9\x04\x01\x00\x00\x00\x00\x2C\x00\x00\
         \\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\
         \\x01\x00\x3B"
 
--- TODO - make file config
-newConf dvar = Conf { 
-    port = 8080, 
-    validator = Nothing, 
+data Command = Help | Run
+
+data Options = Options {
+    _optCommand  :: Command,
+    _optPort     :: Int,
+    _optTimeout  :: Int
+    } 
+
+$(makeLens ''Options)
+
+defaultOptions = Options {
+    _optCommand = Run,
+    _optPort = 8080,
+    _optTimeout = 3
+    }
+
+options :: [ OptDescr (Options -> Options) ]
+options = [
+    Option ['p'] ["port"]    (reqArg optPort    "PORT")    "http listening port",
+    Option ['t'] ["timeout"] (reqArg optTimeout "TIMEOUT") "response timeout",
+    Option ['h'] ["help"]    (noArg  Help)                 "show help"
+    ]
+    where
+    reqArg prop ad = ReqArg (\s -> setL prop $ read s) ad
+    noArg cmd  = NoArg (setL optCommand cmd)
+
+readOptions :: [String] -> IO Options
+readOptions argv = case getOpt Permute options argv of
+    (o,_, [])  -> return $ foldl (flip id) defaultOptions o
+    (_,_,errs) -> ioError $ userError $ concat errs 
+
+newConf :: Options -> TVar DStatus -> Conf
+newConf opts dvar = Conf {
+    port = opts ^. optPort,
+    validator = Nothing,
     logAccess = Just (DStatus.logAccess dvar logMAccess),
-    timeout = 3,
+    timeout = opts ^. optTimeout,
     threadGroup = Nothing
     }
 
 dstatusAction :: AcidState Stats -> TVar DStatus -> ServerPart Response
-dstatusAction acidStats dvar = do 
+dstatusAction acidStats dvar = do
     dstatus <- lift $ readTVarIO dvar
     stats <- query' acidStats PeekStats
     ok $ toResponse $ H.body $ do
@@ -70,19 +105,34 @@ trAction acidStats = do
     interrupt = finishWith $ toResponse PointImg
 
 -- jsonDataAction :: AcidState Stats -> ServerPart Response
--- jsonDataAction 
+-- jsonDataAction
+
+showStatsAction :: AcidState Stats -> ServerPart Response
+showStatsAction acidStats = do
+    stats <- query' acidStats PeekStats
+    ok $ toResponse $ H.body $ do
+        H.toHtml $ fmap (\s -> H.toHtml (show s) >> H.br) $ toList stats
 
 main = do
+    opts <- getArgs >>= readOptions
+    case (opts ^. optCommand) of
+        Help -> showDaemonHelp
+        Run  -> runDaemon opts
+
+showDaemonHelp = putStrLn $ usageInfo "Available options:" options
+
+runDaemon opts = do
     dvar <- DStatus.new
-    let conf = newConf dvar
-    bracket 
+    let conf = newConf opts dvar
+    bracket
         (openLocalState initialStats)
         (createCheckpointAndClose)
         (\acidStats -> simpleHTTP conf $ mapServerPartT' (DStatus.measure dvar) $ msum [
             dir "dstatus"     $ dstatusAction acidStats dvar,
             dir "tr"          $ trAction acidStats,
+            dir "showstats"   $ showStatsAction acidStats,
             dir "favicon.ico" $ serveFile (asContentType "image/vnd.microsoft.icon") "favicon.ico",
-            dir "static"      $ serveDirectory EnableBrowsing [] "html" 
+            dir "static"      $ serveDirectory EnableBrowsing [] "html"
         ])
 
 
