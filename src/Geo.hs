@@ -55,6 +55,8 @@ data GeoDb = GeoDb {
     _dbRanges    :: IxSet IpRangeLocation
     } deriving (Data, Typeable)
 
+initialGeoDb = GeoDb empty empty empty empty
+
 $(makeLens ''GeoDb)
 
 $(makeAcidic ''GeoDb [])

@@ -20,7 +20,9 @@ import Data.Acid
 import Data.Acid.Advanced
 import Data.Acid.Local
 import Data.List
+import Data.Typeable
 import Stat
+import Geo
 import Data.Time.LocalTime
 import Data.Time.Clock
 import Data.IxSet
@@ -63,8 +65,8 @@ options = [
     Option ['h'] ["help"]    (noArg  Help)                 "show help"
     ]
     where
-    reqArg prop ad = ReqArg (\s -> setL prop $ read s) ad
-    noArg cmd  = NoArg (setL optCommand cmd)
+    reqArg prop ad = ReqArg (\s -> prop ^= read s) ad
+    noArg cmd  = NoArg (optCommand ^= cmd)
 
 readOptions :: [String] -> IO Options
 readOptions argv = case getOpt Permute options argv of
@@ -121,18 +123,22 @@ main = do
 
 showDaemonHelp = putStrLn $ usageInfo "Available options:" options
 
+withAcid :: (Typeable a, IsAcidic a) => a -> (AcidState a ->  IO ()) -> IO ()
+withAcid init = bracket (openLocalState init) createCheckpointAndClose
+
+withAcidDbs :: (AcidState Stats -> AcidState GeoDb -> IO ()) -> IO ()
+withAcidDbs f = 
+    withAcid initialStats $ \stats ->
+    withAcid initialGeoDb $ \geodb -> f stats geodb
+
 runDaemon opts = do
     dvar <- DStatus.new
     let conf = newConf opts dvar
-    bracket
-        (openLocalState initialStats)
-        (createCheckpointAndClose)
-        (\acidStats -> simpleHTTP conf $ mapServerPartT' (DStatus.measure dvar) $ msum [
-            dir "dstatus"     $ dstatusAction acidStats dvar,
-            dir "tr"          $ trAction acidStats,
-            dir "showstats"   $ showStatsAction acidStats,
+    withAcidDbs $ \stats geodb -> simpleHTTP conf $ mapServerPartT' (DStatus.measure dvar) $ msum [
+            dir "dstatus"     $ dstatusAction stats dvar,
+            dir "tr"          $ trAction stats,
+            dir "showstats"   $ showStatsAction stats,
             dir "favicon.ico" $ serveFile (asContentType "image/vnd.microsoft.icon") "favicon.ico",
             dir "static"      $ serveDirectory EnableBrowsing [] "html"
-        ])
-
+        ]
 

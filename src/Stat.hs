@@ -20,6 +20,7 @@ import Control.Applicative ( (<$>) )
 import Data.Lens.Common
 import Data.Lens.Template (makeLens)
 import Data.Lens.IxSet (ixLens)
+import Geo
 
 newtype Url = Url B.ByteString  deriving (Eq, Ord, Read, Show, Data, Typeable, SafeCopy)
 newtype DayHour = DayHour Int8 deriving (Eq, Ord, Read, Show, Data, Typeable, SafeCopy)
@@ -57,7 +58,7 @@ ip2region s = Region s
 
 data Stat = Stat {
     _statIndex  :: StatIndex,
-    _statCount  :: Int
+    _statCount  :: Int  -- visitors count for this 'statIndex'
     } deriving (Eq, Ord, Read, Show, Data, Typeable)
 
 $(makeLens ''Stat)
