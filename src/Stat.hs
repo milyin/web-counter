@@ -12,14 +12,14 @@ import qualified Data.ByteString.Char8 as C
 import Data.Acid
 import Data.SafeCopy
 import Data.Data
-import Data.IxSet
+import Data.IxSet hiding (Indexable)
+import qualified Data.IxSet as IxSet (Indexable)
 import Control.Monad
 import Control.Monad.State ( get, put )
 import Control.Monad.Reader ( ask )
 import Control.Applicative ( (<$>) )
-import Data.Lens.Common
-import Data.Lens.Template (makeLens)
 import Geo
+import Control.Lens
 
 newtype Url = Url B.ByteString  deriving (Eq, Ord, Read, Show, Data, Typeable, SafeCopy)
 newtype DayHour = DayHour Int8 deriving (Eq, Ord, Read, Show, Data, Typeable, SafeCopy)
@@ -40,7 +40,7 @@ data StatIndex = StatIndex {
     _statRegion :: Region
     } deriving (Eq, Ord, Read, Show, Data, Typeable)
 
-$(makeLens ''StatIndex)
+makeLenses ''StatIndex
 
 makeIndex :: Visit -> StatIndex
 makeIndex visit = StatIndex {
@@ -60,36 +60,36 @@ data Stat = Stat {
     _statCount  :: Int  -- visitors count for this 'statIndex'
     } deriving (Eq, Ord, Read, Show, Data, Typeable)
 
-$(makeLens ''Stat)
+makeLenses ''Stat
 
-instance Indexable Stat where
+instance IxSet.Indexable Stat where
     empty = ixSet [ 
-        ixFun $ \s -> [               statIndex ^$ s ],
-        ixFun $ \s -> [ statUrl    ^$ statIndex ^$ s ],
-        ixFun $ \s -> [ statDay    ^$ statIndex ^$ s ],
-        ixFun $ \s -> [ statHour   ^$ statIndex ^$ s ],
-        ixFun $ \s -> [ statRegion ^$ statIndex ^$ s ],
-        ixFun $ \s -> [ (statDay   ^$ statIndex ^$ s, statHour ^$ statIndex ^$ s) ]
+        ixFun $ \s -> [ s^.statIndex ],
+        ixFun $ \s -> [ s^.statIndex.statUrl ],
+        ixFun $ \s -> [ s^.statIndex.statDay ],
+        ixFun $ \s -> [ s^.statIndex.statHour ],
+        ixFun $ \s -> [ s^.statIndex.statRegion ],
+        ixFun $ \s -> [ (s^.statIndex.statDay, s^.statIndex.statHour) ]
         ]
 
 data Stats = Stats {
     _statsSet :: IxSet Stat
     } deriving (Data, Typeable)
 
-$(makeLens ''Stats)
+makeLenses ''Stats
 
 initialStats = Stats { _statsSet = empty }
 
 incStats :: StatIndex -> Update Stats Int
 incStats index = do
     s <- get
-    let rec = maybe (Stat index 1) (statCount ^%= succ) (getOne $ (s ^. statsSet) @= index)
-    let new_s = (statsSet ^%= updateIx index rec) s
+    let rec = maybe (Stat index 1) (statCount %~ succ) (getOne $ getEQ index $ s^.statsSet)
+    let new_s = s & statsSet %~ updateIx index rec
     put $ new_s
-    return $ statCount ^$ rec
+    return $ rec^.statCount
 
 peekStats :: Query Stats (IxSet Stat)
-peekStats = getL statsSet <$> ask
+peekStats = view statsSet <$> ask
 
 $(makeAcidic ''Stats ['incStats, 'peekStats])
 $(deriveSafeCopy 0 'base ''Region)

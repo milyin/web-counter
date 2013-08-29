@@ -4,13 +4,13 @@
 module Geo where
 
 import Data.IP
-import Data.IxSet
+import Data.IxSet hiding (Indexable)
+import qualified Data.IxSet as IxSet (Indexable)
 import Data.Data
 import Data.IxSet
 import Data.SafeCopy
 import Data.Acid
-import Data.Lens.Common
-import Data.Lens.Template (makeLens)
+import Control.Lens
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C
 
@@ -20,7 +20,7 @@ data Location = Location {
     _lcCity    :: Int
     } deriving (Eq, Ord, Read, Show, Data, Typeable)
 
-$(makeLens ''Location)
+makeLenses ''Location
 
 data IpRange = IpRange4 [Int] [Int] | IpRange6 [Int] [Int]
     deriving (Eq, Ord, Read, Show, Data, Typeable)
@@ -30,9 +30,9 @@ data IpRangeLocation = IpRangeLocation {
     _irlLocation :: Location
     } deriving (Eq, Ord, Read, Show, Data, Typeable)
 
-$(makeLens ''IpRangeLocation)
+makeLenses ''IpRangeLocation
 
-instance Indexable IpRangeLocation where
+instance IxSet.Indexable IpRangeLocation where
     empty = ixSet [ 
         ]
 
@@ -41,9 +41,9 @@ data Reference = Reference {
     _refValue :: B.ByteString
     } deriving (Eq, Ord, Read, Show, Data, Typeable)
 
-$(makeLens ''Reference)
+makeLenses ''Reference
 
-instance Indexable Reference where
+instance IxSet.Indexable Reference where
     empty = ixSet [ 
         ]
 
@@ -56,7 +56,7 @@ data GeoDb = GeoDb {
 
 initialGeoDb = GeoDb empty empty empty empty
 
-$(makeLens ''GeoDb)
+makeLenses ''GeoDb
 
 $(makeAcidic ''GeoDb [])
 $(deriveSafeCopy 0 'base ''GeoDb)

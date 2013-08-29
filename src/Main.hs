@@ -28,9 +28,8 @@ import Data.Time.Clock
 import Data.IxSet
 import Data.Maybe
 import System.Console.GetOpt
-import Data.Lens.Common
-import Data.Lens.Template (makeLens)
 import System.Environment
+import Control.Lens
 
 data PointImg = PointImg
 instance ToMessage PointImg where
@@ -50,7 +49,7 @@ data Options = Options {
     _optTimeout  :: Int
     } 
 
-$(makeLens ''Options)
+makeLenses ''Options
 
 defaultOptions = Options {
     _optCommand = Run,
@@ -65,8 +64,8 @@ options = [
     Option ['h'] ["help"]    (noArg  Help)                 "show help"
     ]
     where
-    reqArg prop ad = ReqArg (\s -> prop ^= read s) ad
-    noArg cmd  = NoArg (optCommand ^= cmd)
+    reqArg prop ad = ReqArg (\s -> prop .~ read s) ad
+    noArg cmd  = NoArg (optCommand .~ cmd)
 
 readOptions :: [String] -> IO Options
 readOptions argv = case getOpt Permute options argv of
