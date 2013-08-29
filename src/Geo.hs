@@ -11,7 +11,6 @@ import Data.SafeCopy
 import Data.Acid
 import Data.Lens.Common
 import Data.Lens.Template (makeLens)
-import Data.Lens.IxSet (ixLens)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C
 

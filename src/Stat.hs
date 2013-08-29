@@ -19,7 +19,6 @@ import Control.Monad.Reader ( ask )
 import Control.Applicative ( (<$>) )
 import Data.Lens.Common
 import Data.Lens.Template (makeLens)
-import Data.Lens.IxSet (ixLens)
 import Geo
 
 newtype Url = Url B.ByteString  deriving (Eq, Ord, Read, Show, Data, Typeable, SafeCopy)
@@ -79,15 +78,12 @@ data Stats = Stats {
 
 $(makeLens ''Stats)
 
-stat :: (Typeable key) => key -> Lens (IxSet Stat) (Maybe Stat)
-stat key = ixLens key
-
 initialStats = Stats { _statsSet = empty }
 
 incStats :: StatIndex -> Update Stats Int
 incStats index = do
     s <- get
-    let rec = maybe (Stat index 1) (statCount ^%= succ) (stat index ^$ statsSet ^$ s)
+    let rec = maybe (Stat index 1) (statCount ^%= succ) (getOne $ (s ^. statsSet) @= index)
     let new_s = (statsSet ^%= updateIx index rec) s
     put $ new_s
     return $ statCount ^$ rec
