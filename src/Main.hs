@@ -30,6 +30,7 @@ import Data.Maybe
 import System.Console.GetOpt
 import System.Environment
 import Control.Lens
+import Database.MySQL.Simple
 
 data PointImg = PointImg
 instance ToMessage PointImg where
@@ -44,9 +45,13 @@ instance ToMessage PointImg where
 data Command = Help | Run
 
 data Options = Options {
-    _optCommand  :: Command,
-    _optPort     :: Int,
-    _optTimeout  :: Int
+    _optCommand    :: Command,
+    _optPort       :: Int,
+    _optTimeout    :: Int,
+    _optDbHost     :: String,
+    _optDbName     :: String,
+    _optDbUser     :: String,
+    _optDbPassword :: String
     } 
 
 makeLenses ''Options
@@ -54,14 +59,22 @@ makeLenses ''Options
 defaultOptions = Options {
     _optCommand = Run,
     _optPort = 8080,
-    _optTimeout = 3
+    _optTimeout = 3,
+    _optDbHost = "localhost",
+    _optDbName = "webcounter",
+    _optDbUser = "root",
+    _optDbPassword = "4321"
     }
 
 options :: [ OptDescr (Options -> Options) ]
 options = [
-    Option ['p'] ["port"]    (reqArg optPort    "PORT")    "http listening port",
-    Option ['t'] ["timeout"] (reqArg optTimeout "TIMEOUT") "response timeout",
-    Option ['h'] ["help"]    (noArg  Help)                 "show help"
+    Option ['p'] ["port"]        (reqArg optPort       "PORT")        "http listening port",
+    Option ['t'] ["timeout"]     (reqArg optTimeout    "TIMEOUT")     "response timeout",
+    Option []    ["dbhost"]      (reqArg optDbHost     "DB_HOST")     "db host",
+    Option []    ["dbname"]      (reqArg optDbName     "DB_NAME")     "db name",
+    Option []    ["dbuser"]      (reqArg optDbUser     "DB_USER")     "db user",
+    Option []    ["dbpassword"]  (reqArg optDbPassword "DB_PASSWORD") "db password",
+    Option ['h'] ["help"]        (noArg  Help)                        "show help"
     ]
     where
     reqArg prop ad = ReqArg (\s -> prop .~ read s) ad
@@ -72,8 +85,8 @@ readOptions argv = case getOpt Permute options argv of
     (o,_, [])  -> return $ foldl (flip id) defaultOptions o
     (_,_,errs) -> ioError $ userError $ concat errs 
 
-newConf :: Options -> TVar DStatus -> Conf
-newConf opts dvar = Conf {
+httpConf :: Options -> TVar DStatus -> Conf
+httpConf opts dvar = Conf {
     port = opts ^. optPort,
     validator = Nothing,
     logAccess = Just (DStatus.logAccess dvar logMAccess),
@@ -130,9 +143,17 @@ withAcidDbs f =
     withAcid initialStats $ \stats ->
     withAcid initialGeoDb $ \geodb -> f stats geodb
 
+makeConnectInfo opts = defaultConnectInfo {
+    connectHost     = opts ^. optDbHost,
+    connectUser     = opts ^. optDbUser,
+    connectDatabase = opts ^. optDbName,
+    connectPassword = opts ^. optDbPassword
+    }
+
 runDaemon opts = do
     dvar <- DStatus.new
-    let conf = newConf opts dvar
+    let conf = httpConf opts dvar
+    let mysql_conn = connect $ makeConnectInfo opts
     withAcidDbs $ \stats geodb -> simpleHTTP conf $ mapServerPartT' (DStatus.measure dvar) $ msum [
             dir "dstatus"     $ dstatusAction stats dvar,
             dir "tr"          $ trAction stats,

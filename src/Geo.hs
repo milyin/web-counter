@@ -57,11 +57,10 @@ data GeoDb = GeoDb {
 initialGeoDb = GeoDb empty empty empty empty
 
 makeLenses ''GeoDb
-
-$(makeAcidic ''GeoDb [])
-$(deriveSafeCopy 0 'base ''GeoDb)
-$(deriveSafeCopy 0 'base ''Reference)
-$(deriveSafeCopy 0 'base ''IpRangeLocation)
-$(deriveSafeCopy 0 'base ''IpRange)
-$(deriveSafeCopy 0 'base ''Location)
+makeAcidic ''GeoDb []
+deriveSafeCopy 0 'base ''GeoDb
+deriveSafeCopy 0 'base ''Reference
+deriveSafeCopy 0 'base ''IpRangeLocation
+deriveSafeCopy 0 'base ''IpRange
+deriveSafeCopy 0 'base ''Location
 
