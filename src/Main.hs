@@ -2,6 +2,7 @@
 
 module Main where
 
+import Prelude hiding (foldl, concat)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy.Char8 as L
@@ -12,25 +13,29 @@ import qualified Stat
 import Control.Exception.Base
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TVar
-import Control.Monad
+import Control.Monad hiding (msum)
 import Control.Monad.Trans
 import qualified Text.Blaze.Html4.Strict as H
 import qualified Text.Blaze.Html4.Strict.Attributes as A
 import Data.Acid
 import Data.Acid.Advanced
 import Data.Acid.Local
-import Data.List
+-- import Data.List
 import Data.Typeable
 import Stat
 import Geo
 import Data.Time.LocalTime
 import Data.Time.Clock
-import Data.IxSet
+import qualified Data.IxSet as IxSet
 import Data.Maybe
 import System.Console.GetOpt
 import System.Environment
 import Control.Lens
-import Database.MySQL.Simple
+import qualified Data.Sequence as Seq
+import Data.Foldable
+import Data.List (intersperse)
+import Data.Time.Format
+import System.Locale
 
 data PointImg = PointImg
 instance ToMessage PointImg where
@@ -99,7 +104,8 @@ dstatusAction acidStats dvar = do
     dstatus <- lift $ readTVarIO dvar
     stats <- query' acidStats PeekStats
     ok $ toResponse $ H.body $ do
-        H.toHtml (size stats) >> H.toHtml " records"
+        H.toHtml (IxSet.size $ stats^.statsSet) >> H.toHtml " stat records "
+        H.toHtml (length $ stats^.visitsLog) >> H.toHtml " visit records "
         H.hr
         H.toHtml $ dstatus
 
@@ -107,16 +113,21 @@ trAction :: AcidState Stats -> ServerPart Response
 trAction acidStats = do
 --    headers <- rqHeaders `liftM` askRq
 --    lift $ putStrLn $ show headers
-    referer <- require $ (getHeader "referer") `liftM` askRq
-    clientIp <- (fst.rqPeer) `liftM` askRq
+    ip <- ((C.pack).fst.rqPeer) `liftM` askRq
+    referer <- coalesce (C.pack "") $ (getHeader "referer") `liftM` askRq
+    user_agent <- coalesce (C.pack "") $ (getHeader "user-agent") `liftM` askRq
+    r <- C.pack `liftM` look "r"
     time <- liftIO getCurrentTime
-    let visit = Visit { vzTime = time, vzClientIp = clientIp, vzReferer = referer }
-    update' acidStats (IncStats $ makeIndex visit)
+    update' acidStats $ RecordVisit $ mkVisit time ip referer user_agent r
     ok $ toResponse PointImg
     where
-    require :: ServerPart (Maybe v) -> ServerPart v
-    require a = a >>= \mv -> maybe interrupt return mv
-    interrupt = finishWith $ toResponse PointImg
+    coalesce :: v -> ServerPart (Maybe v) -> ServerPart v
+    coalesce d a = a >>= \mv -> maybe (return d) (return) mv
+
+clearAction :: AcidState Stats -> ServerPart Response
+clearAction acidStats = do
+    update' acidStats $ ClearVisits
+    ok $ toResponse "Data cleared"
 
 -- jsonDataAction :: AcidState Stats -> ServerPart Response
 -- jsonDataAction
@@ -124,8 +135,16 @@ trAction acidStats = do
 showStatsAction :: AcidState Stats -> ServerPart Response
 showStatsAction acidStats = do
     stats <- query' acidStats PeekStats
-    ok $ toResponse $ H.body $ do
-        H.toHtml $ fmap (\s -> H.toHtml (show s) >> H.br) $ toList stats
+    ok $ toResponse $ C.concat $ intersperse (C.pack "\n") $ map toCsvRow $ toList $ stats^.visitsLog
+    where 
+        toCsvRow :: Visit -> B.ByteString
+        toCsvRow visit = B.concat $ intersperse (C.pack ",") [ 
+            C.pack $ formatTime defaultTimeLocale "%F %T" $ visit^.visitTime,
+            visit^.visitIp,
+            visit^.visitReferer,
+            visit^.visitR,
+            visit^.visitUserAgent
+            ]
 
 main = do
     opts <- getArgs >>= readOptions
@@ -143,21 +162,15 @@ withAcidDbs f =
     withAcid initialStats $ \stats ->
     withAcid initialGeoDb $ \geodb -> f stats geodb
 
-makeConnectInfo opts = defaultConnectInfo {
-    connectHost     = opts ^. optDbHost,
-    connectUser     = opts ^. optDbUser,
-    connectDatabase = opts ^. optDbName,
-    connectPassword = opts ^. optDbPassword
-    }
-
 runDaemon opts = do
     dvar <- DStatus.new
     let conf = httpConf opts dvar
-    let mysql_conn = connect $ makeConnectInfo opts
     withAcidDbs $ \stats geodb -> simpleHTTP conf $ mapServerPartT' (DStatus.measure dvar) $ msum [
+            nullDir           >> serveFile (asContentType "text/html") "html/index.html",
             dir "dstatus"     $ dstatusAction stats dvar,
             dir "tr"          $ trAction stats,
             dir "showstats"   $ showStatsAction stats,
+            dir "clear"       $ clearAction stats,
             dir "favicon.ico" $ serveFile (asContentType "image/vnd.microsoft.icon") "favicon.ico",
             dir "static"      $ serveDirectory EnableBrowsing [] "html"
         ]

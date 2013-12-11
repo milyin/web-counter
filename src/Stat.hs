@@ -19,41 +19,47 @@ import Control.Monad.State ( get, put )
 import Control.Monad.Reader ( ask )
 import Control.Applicative ( (<$>) )
 import Geo
-import Control.Lens
+import Control.Lens hiding ( (|>), (<|) )
+import Data.Sequence (Seq, (|>), (<|) )
+import qualified Data.Sequence as Seq
 
 newtype Url = Url B.ByteString  deriving (Eq, Ord, Read, Show, Data, Typeable, SafeCopy)
 newtype DayHour = DayHour Int8 deriving (Eq, Ord, Read, Show, Data, Typeable, SafeCopy)
 
-newtype Region = Region String
-    deriving (Eq, Ord, Read, Show, Data, Typeable)
-
 data Visit = Visit {
-    vzTime     :: UTCTime,
-    vzClientIp :: String,
-    vzReferer  :: B.ByteString
-    } deriving (Show)
+    _visitTime      :: UTCTime,
+    _visitIp        :: B.ByteString,
+    _visitReferer   :: B.ByteString,
+    _visitUserAgent :: B.ByteString,
+    _visitR         :: B.ByteString
+    } deriving (Eq, Ord, Read, Show, Data, Typeable)
+
+makeLenses ''Visit
+
+mkVisit time ip referer agent r = Visit {
+    _visitTime = time,
+    _visitIp   = ip,
+    _visitReferer = referer,
+    _visitUserAgent = agent,
+    _visitR = r
+    }
 
 data StatIndex = StatIndex {
     _statUrl    :: Url,
     _statDay    :: Day,
-    _statHour   :: DayHour,
-    _statRegion :: Region
+    _statHour   :: DayHour
     } deriving (Eq, Ord, Read, Show, Data, Typeable)
 
 makeLenses ''StatIndex
 
-makeIndex :: Visit -> StatIndex
-makeIndex visit = StatIndex {
-    _statUrl    = Url $ vzReferer $ visit,
+visitToStatIndex :: Visit -> StatIndex
+visitToStatIndex visit = StatIndex {
+    _statUrl    = Url $ visit ^. visitReferer,
     _statDay    = localDay visitLocalTime,
-    _statHour   = localDayHour visitLocalTime,
-    _statRegion = ip2region $ vzClientIp visit
+    _statHour   = localDayHour visitLocalTime
     } where
-        visitLocalTime = utcToLocalTime utc $ vzTime visit
+        visitLocalTime = utcToLocalTime utc $ visit ^. visitTime
         localDayHour localTime = DayHour $ fromIntegral $ todHour $ localTimeOfDay localTime
-
-ip2region :: String -> Region
-ip2region s = Region s
 
 data Stat = Stat {
     _statIndex  :: StatIndex,
@@ -68,32 +74,39 @@ instance IxSet.Indexable Stat where
         ixFun $ \s -> [ s^.statIndex.statUrl ],
         ixFun $ \s -> [ s^.statIndex.statDay ],
         ixFun $ \s -> [ s^.statIndex.statHour ],
-        ixFun $ \s -> [ s^.statIndex.statRegion ],
         ixFun $ \s -> [ (s^.statIndex.statDay, s^.statIndex.statHour) ]
         ]
 
 data Stats = Stats {
-    _statsSet :: IxSet Stat
+    _statsSet :: IxSet Stat,
+    _visitsLog :: [ Visit ]
     } deriving (Data, Typeable)
 
 makeLenses ''Stats
 
-initialStats = Stats { _statsSet = empty }
+initialStats = Stats { _statsSet = empty, _visitsLog = [] }
 
-incStats :: StatIndex -> Update Stats Int
-incStats index = do
+recordVisit :: Visit -> Update Stats ()
+recordVisit visit = do
+    let index = visitToStatIndex visit
     s <- get
     let rec = maybe (Stat index 1) (statCount %~ succ) (getOne $ getEQ index $ s^.statsSet)
-    let new_s = s & statsSet %~ updateIx index rec
-    put $ new_s
-    return $ rec^.statCount
+    let s1 = s & statsSet %~ updateIx index rec
+    let s2 = s & visitsLog %~ \log -> visit:log
+    put $ s2
+    return ()
 
-peekStats :: Query Stats (IxSet Stat)
-peekStats = view statsSet <$> ask
+clearVisits :: Update Stats ()
+clearVisits = do
+    put $ initialStats
+    return ()
 
-$(makeAcidic ''Stats ['incStats, 'peekStats])
-$(deriveSafeCopy 0 'base ''Region)
+peekStats :: Query Stats Stats
+peekStats =  ask
+
+$(makeAcidic ''Stats ['recordVisit, 'peekStats, 'clearVisits])
 $(deriveSafeCopy 0 'base ''StatIndex)
+$(deriveSafeCopy 0 'base ''Visit)
 $(deriveSafeCopy 0 'base ''Stat)
 $(deriveSafeCopy 0 'base ''Stats)
 

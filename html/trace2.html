@@ -1,8 +1,13 @@
 <html>
 <head><title>Second sample page with link to tracker</title></head>
 <body>
-Other tracker is here: [
-<img src="/tr" width=1 height=1/>
-]
+Js tracker is here: [<span id="tr"/>]
+<script>
+img = new Image();
+img.src="/tr?r="+document.referrer;
+document.getElementById('tr').appendChild(img);
+</script>
+<br/>
+<a href="/"> / </a> | <a href="/static/trace2.html">img sample</a>
 </body>
 </html>
