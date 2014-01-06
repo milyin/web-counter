@@ -166,12 +166,16 @@ runDaemon opts = do
     dvar <- DStatus.new
     let conf = httpConf opts dvar
     withAcidDbs $ \stats geodb -> simpleHTTP conf $ mapServerPartT' (DStatus.measure dvar) $ msum [
-            nullDir           >> serveFile (asContentType "text/html") "html/index.html",
+            -- actions
             dir "dstatus"     $ dstatusAction stats dvar,
             dir "tr"          $ trAction stats,
             dir "showstats"   $ showStatsAction stats,
             dir "clear"       $ clearAction stats,
+            -- static files
             dir "favicon.ico" $ serveFile (asContentType "image/vnd.microsoft.icon") "favicon.ico",
-            dir "static"      $ serveDirectory EnableBrowsing [] "html"
+            dir "html"        $ serveDirectory DisableBrowsing ["index.html"] "html",
+            dir "images"      $ serveDirectory DisableBrowsing [] "images",
+            dir "css"         $ serveDirectory DisableBrowsing [] "css",
+            nullDir           >> serveFile (asContentType "text/html") "html/index.html"
         ]
 

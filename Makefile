@@ -1,12 +1,10 @@
-all: web-counter
+all: 
+	mkdir -p dist
+	cd src/web-counter && make && cp dist/build/web-counter/web-counter ../../dist
+	cd src/site && make && cp -R _site/* ../../dist
 
-dist/build/web-counter/web-counter: dist/setup-config src/*.hs src/Test/Web/*.hs
-	[ ! -f dist/build/web-counter/web-counter ] || rm dist/build/web-counter/web-counter
-	cabal build 
-	cabal test 
+clear:
+	rm -rf dist
+	cd src/web-counter && make clear
+	cd src/site && make clear
 
-web-counter: dist/build/web-counter/web-counter
-	cp dist/build/web-counter/web-counter .
-
-dist/setup-config: web-counter.cabal
-	cabal configure --enable-tests

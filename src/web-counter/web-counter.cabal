@@ -8,9 +8,9 @@ copyright:          (c) 2013 Michael Ilyin
 author:             Michael Ilyin
 maintainer:         milyin@gmail.com
 stability:          experimental
-homepage:           http://not-yet-implemented.com
+homepage:           http://trk.net.ru
 bug-reports:        mailto:milyin@gmail.com
-package-url:        http://not-yet-implemented.com
+package-url:        http://trk.net.ru
 synopsis:           Web site visitors counter service
 description:        The daemon for registering website visitors through js or image counter
 category:           Web
