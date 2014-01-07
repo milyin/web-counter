@@ -73,16 +73,16 @@ defaultOptions = Options {
 
 options :: [ OptDescr (Options -> Options) ]
 options = [
-    Option ['p'] ["port"]        (reqArg optPort       "PORT")        "http listening port",
-    Option ['t'] ["timeout"]     (reqArg optTimeout    "TIMEOUT")     "response timeout",
-    Option []    ["dbhost"]      (reqArg optDbHost     "DB_HOST")     "db host",
-    Option []    ["dbname"]      (reqArg optDbName     "DB_NAME")     "db name",
-    Option []    ["dbuser"]      (reqArg optDbUser     "DB_USER")     "db user",
-    Option []    ["dbpassword"]  (reqArg optDbPassword "DB_PASSWORD") "db password",
-    Option ['h'] ["help"]        (noArg  Help)                        "show help"
+    Option "p" ["port"]        (reqArg optPort       "PORT")        "http listening port",
+    Option "t" ["timeout"]     (reqArg optTimeout    "TIMEOUT")     "response timeout",
+    Option ""  ["dbhost"]      (reqArg optDbHost     "DB_HOST")     "db host",
+    Option ""  ["dbname"]      (reqArg optDbName     "DB_NAME")     "db name",
+    Option ""  ["dbuser"]      (reqArg optDbUser     "DB_USER")     "db user",
+    Option ""  ["dbpassword"]  (reqArg optDbPassword "DB_PASSWORD") "db password",
+    Option "h" ["help"]        (noArg  Help)                        "show help"
     ]
     where
-    reqArg prop ad = ReqArg (\s -> prop .~ read s) ad
+    reqArg prop = ReqArg (\s -> prop .~ read s)
     noArg cmd  = NoArg (optCommand .~ cmd)
 
 readOptions :: [String] -> IO Options
@@ -107,26 +107,26 @@ dstatusAction acidStats dvar = do
         H.toHtml (IxSet.size $ stats^.statsSet) >> H.toHtml " stat records "
         H.toHtml (length $ stats^.visitsLog) >> H.toHtml " visit records "
         H.hr
-        H.toHtml $ dstatus
+        H.toHtml dstatus
 
 trAction :: AcidState Stats -> ServerPart Response
 trAction acidStats = do
 --    headers <- rqHeaders `liftM` askRq
 --    lift $ putStrLn $ show headers
-    ip <- ((C.pack).fst.rqPeer) `liftM` askRq
-    referer <- coalesce (C.pack "") $ (getHeader "referer") `liftM` askRq
-    user_agent <- coalesce (C.pack "") $ (getHeader "user-agent") `liftM` askRq
+    ip <- (C.pack . fst . rqPeer) `liftM` askRq
+    referer <- coalesce (C.pack "") $ getHeader "referer" `liftM` askRq
+    user_agent <- coalesce (C.pack "") $ getHeader "user-agent" `liftM` askRq
     r <- C.pack `liftM` look "r"
     time <- liftIO getCurrentTime
     update' acidStats $ RecordVisit $ mkVisit time ip referer user_agent r
     ok $ toResponse PointImg
     where
     coalesce :: v -> ServerPart (Maybe v) -> ServerPart v
-    coalesce d a = a >>= \mv -> maybe (return d) (return) mv
+    coalesce d a = a >>= \mv -> maybe (return d) return mv
 
 clearAction :: AcidState Stats -> ServerPart Response
 clearAction acidStats = do
-    update' acidStats $ ClearVisits
+    update' acidStats ClearVisits
     ok $ toResponse "Data cleared"
 
 -- jsonDataAction :: AcidState Stats -> ServerPart Response
@@ -148,7 +148,7 @@ showStatsAction acidStats = do
 
 main = do
     opts <- getArgs >>= readOptions
-    case (opts ^. optCommand) of
+    case opts ^. optCommand of
         Help -> showDaemonHelp
         Run  -> runDaemon opts
 

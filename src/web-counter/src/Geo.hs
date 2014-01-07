@@ -3,11 +3,11 @@
 
 module Geo where
 
-import Data.IP
+import Data.IP()
 import Data.IxSet hiding (Indexable)
 import qualified Data.IxSet as IxSet (Indexable)
 import Data.Data
-import Data.IxSet
+import Data.IxSet()
 import Data.SafeCopy
 import Data.Acid
 import Control.Lens
