@@ -3,6 +3,8 @@ all: site favicon.ico css/* images/* posts/* templates/* *.rst *.markdown *.html
 
 clear:
 	rm -rf _site
+	rm -rf _cache
+	rm site
 
 site: site.hs
 	ghc --make site.hs
