@@ -20,7 +20,6 @@ import qualified Text.Blaze.Html4.Strict.Attributes as A
 import Data.Acid
 import Data.Acid.Advanced
 import Data.Acid.Local
--- import Data.List
 import Data.Typeable
 import Stat
 import Geo
@@ -35,7 +34,13 @@ import qualified Data.Sequence as Seq
 import Data.Foldable
 import Data.List (intersperse)
 import Data.Time.Format
+import Data.Time.Clock.POSIX
 import System.Locale
+import DataService
+import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Control.Distributed.Process hiding (bracket)
+import Control.Distributed.Process.Node
+import Data.IORef
 
 data PointImg = PointImg
 instance ToMessage PointImg where
@@ -99,9 +104,34 @@ httpConf opts dvar = Conf {
     threadGroup = Nothing
     }
 
-dstatusAction :: AcidState Stats -> TVar DStatus -> ServerPart Response
-dstatusAction acidStats dvar = do
+queryDbStat :: LocalNode -> ProcessId -> IO DbStat
+queryDbStat node dbpid = do
+    result <- newIORef $ DbStat 0 0    
+    runProcess node $ do
+        self <- getSelfPid
+        send dbpid (self, GetDbStat)
+        RespDbStat dbstat <- expect
+        liftIO $ writeIORef result dbstat
+    readIORef result
+
+cloudAction :: LocalNode -> ProcessId -> ServerPart Response
+cloudAction node dbpid = do
+    dbstat <- liftIO $ queryDbStat node dbpid
+    ok $ toResponse $ H.body $ do
+        H.toHtml (statSetSize dbstat) >> H.toHtml " stat records "
+        H.toHtml (visitsLogSize dbstat) >> H.toHtml " visit records "
+
+acidAction :: AcidState Stats -> ServerPart Response
+acidAction acidStats = do
+    stats <- query' acidStats PeekStats
+    ok $ toResponse $ H.body $ do
+        H.toHtml (IxSet.size $ stats^.statsSet) >> H.toHtml " stat records "
+        H.toHtml (length $ stats^.visitsLog) >> H.toHtml " visit records "
+
+dstatusAction :: LocalNode -> ProcessId -> AcidState Stats -> TVar DStatus -> ServerPart Response
+dstatusAction node dbpid acidStats dvar = do
     dstatus <- lift $ readTVarIO dvar
+    dbstat <- liftIO $ queryDbStat node dbpid
     stats <- query' acidStats PeekStats
     ok $ toResponse $ H.body $ do
         H.toHtml (IxSet.size $ stats^.statsSet) >> H.toHtml " stat records "
@@ -117,8 +147,8 @@ trAction acidStats = do
     referer <- coalesce (C.pack "") $ getHeader "referer" `liftM` askRq
     user_agent <- coalesce (C.pack "") $ getHeader "user-agent" `liftM` askRq
     r <- C.pack `liftM` look "r"
-    time <- liftIO getCurrentTime
-    update' acidStats $ RecordVisit $ mkVisit time ip referer user_agent r
+    time <- liftIO getPOSIXTime
+    update' acidStats $ RecordVisit $ mkVisit (round time) ip referer user_agent r
     ok $ toResponse PointImg
     where
     coalesce :: v -> ServerPart (Maybe v) -> ServerPart v
@@ -139,7 +169,7 @@ showStatsAction acidStats = do
     where 
         toCsvRow :: Visit -> B.ByteString
         toCsvRow visit = B.concat $ intersperse (C.pack ",") [ 
-            C.pack $ formatTime defaultTimeLocale "%F %T" $ visit^.visitTime,
+            C.pack $ formatTime defaultTimeLocale "%F %T" $ posixSecondsToUTCTime $ realToFrac $ visit^.visitTime,
             visit^.visitIp,
             visit^.visitReferer,
             visit^.visitR,
@@ -165,17 +195,24 @@ withAcidDbs f =
 runDaemon opts = do
     dvar <- DStatus.new
     let conf = httpConf opts dvar
-    withAcidDbs $ \stats geodb -> simpleHTTP conf $ mapServerPartT' (DStatus.measure dvar) $ msum [
-            -- actions
-            dir "dstatus"     $ dstatusAction stats dvar,
-            dir "tr"          $ trAction stats,
-            dir "showstats"   $ showStatsAction stats,
-            dir "clear"       $ clearAction stats,
-            -- static files
-            dir "favicon.ico" $ serveFile (asContentType "image/vnd.microsoft.icon") "favicon.ico",
-            dir "html"        $ serveDirectory DisableBrowsing ["index.html"] "html",
-            dir "images"      $ serveDirectory DisableBrowsing [] "images",
-            dir "css"         $ serveDirectory DisableBrowsing [] "css",
-            nullDir           >> serveFile (asContentType "text/html") "html/index.html"
-        ]
+    transport <- liftM (either (error.("Create transport fail: "++).show) id) $ createTransport "127.0.0.1" "4444" defaultTCPParameters
+    node <- newLocalNode transport initRemoteTable
+    withAcidDbs $ \stats geodb -> runProcess node $ do
+        dbpid <- serverProc stats
+        liftIO $ simpleHTTP conf $ mapServerPartT' (DStatus.measure dvar) $ msum [
+                -- actions
+                dir "dstatus"     $ dstatusAction node dbpid stats dvar,
+                dir "tr"          $ trAction stats,
+                dir "showstats"   $ showStatsAction stats,
+                dir "clear"       $ clearAction stats,
+                -- test actions
+                dir "test_cloud"  $ cloudAction node dbpid,
+                dir "test_acid"   $ acidAction stats,
+                -- static files
+                dir "favicon.ico" $ serveFile (asContentType "image/vnd.microsoft.icon") "favicon.ico",
+                dir "html"        $ serveDirectory DisableBrowsing ["index.html"] "html",
+                dir "images"      $ serveDirectory DisableBrowsing [] "images",
+                dir "css"         $ serveDirectory DisableBrowsing [] "css",
+                nullDir           >> serveFile (asContentType "text/html") "html/index.html"
+            ]
 

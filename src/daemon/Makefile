@@ -1,12 +1,12 @@
-all: dist/build/web-counter/web-counter
+all: dist/build/daemon/daemon
 
 clear:
 	rm -rf dist
 
-dist/build/web-counter/web-counter: dist/setup-config src/*.hs src/Test/Web/*.hs
-	[ ! -f dist/build/web-counter/web-counter ] || rm dist/build/web-counter/web-counter
+dist/build/daemon/daemon: dist/setup-config src/*.hs src/Test/Web/*.hs
+	[ ! -f dist/build/daemon/daemon ] || rm dist/build/daemon/daemon
 	cabal build 
 	cabal test 
 
-dist/setup-config: web-counter.cabal
+dist/setup-config: daemon.cabal
 	cabal configure --enable-tests

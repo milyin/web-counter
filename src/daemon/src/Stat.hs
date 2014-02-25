@@ -1,11 +1,13 @@
 {-# LANGUAGE CPP, DeriveDataTypeable, FlexibleContexts, GeneralizedNewtypeDeriving, 
-    MultiParamTypeClasses, TemplateHaskell, TypeFamilies, RecordWildCards #-}
+    MultiParamTypeClasses, TemplateHaskell, TypeFamilies, RecordWildCards,
+    DeriveGeneric #-}
 
 module Stat where
 
 import Data.IP
 import Data.Time
 import Data.Time.Calendar
+import Data.Time.Clock.POSIX
 import Data.Int
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C
@@ -22,17 +24,18 @@ import Geo
 import Control.Lens hiding ( (|>), (<|) )
 import Data.Sequence (Seq, (|>), (<|) )
 import qualified Data.Sequence as Seq
+import GHC.Generics (Generic)
 
 newtype Url = Url B.ByteString  deriving (Eq, Ord, Read, Show, Data, Typeable, SafeCopy)
 newtype DayHour = DayHour Int8 deriving (Eq, Ord, Read, Show, Data, Typeable, SafeCopy)
 
 data Visit = Visit {
-    _visitTime      :: UTCTime,
+    _visitTime      :: Int64,
     _visitIp        :: B.ByteString,
     _visitReferer   :: B.ByteString,
     _visitUserAgent :: B.ByteString,
     _visitR         :: B.ByteString
-    } deriving (Eq, Ord, Read, Show, Data, Typeable)
+    } deriving (Eq, Ord, Read, Show, Data, Typeable, Generic)
 
 makeLenses ''Visit
 
@@ -58,7 +61,7 @@ visitToStatIndex visit = StatIndex {
     _statDay    = localDay visitLocalTime,
     _statHour   = localDayHour visitLocalTime
     } where
-        visitLocalTime = utcToLocalTime utc $ visit ^. visitTime
+        visitLocalTime = utcToLocalTime utc $ posixSecondsToUTCTime $ realToFrac $ visit ^. visitTime
         localDayHour localTime = DayHour $ fromIntegral $ todHour $ localTimeOfDay localTime
 
 data Stat = Stat {
