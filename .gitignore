@@ -1,5 +1,7 @@
 *.swp
 *.swo
-dist/*
-state/*
-web-counter
+dist/
+state/
+.cabal-sandbox/
+cabal.sandbox.config
+_site/
