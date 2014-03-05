@@ -52,7 +52,7 @@ instance ToMessage PointImg where
         \\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\
         \\x01\x00\x3B"
 
-data Command = Help | Run
+data Command = Help | Run deriving (Show)
 
 data Options = Options {
     _optCommand    :: Command,
@@ -62,7 +62,7 @@ data Options = Options {
     _optDbName     :: String,
     _optDbUser     :: String,
     _optDbPassword :: String
-    } 
+    } deriving (Show)
 
 makeLenses ''Options
 
@@ -104,19 +104,9 @@ httpConf opts dvar = Conf {
     threadGroup = Nothing
     }
 
-queryDbStat :: LocalNode -> ProcessId -> IO DbStat
-queryDbStat node dbpid = do
-    result <- newIORef $ DbStat 0 0    
-    runProcess node $ do
-        self <- getSelfPid
-        send dbpid (self, GetDbStat)
-        RespDbStat dbstat <- expect
-        liftIO $ writeIORef result dbstat
-    readIORef result
-
 cloudAction :: LocalNode -> ProcessId -> ServerPart Response
 cloudAction node dbpid = do
-    dbstat <- liftIO $ queryDbStat node dbpid
+    RespDbStat dbstat <- liftIO $ queryDataService node dbpid GetDbStat
     ok $ toResponse $ H.body $ do
         H.toHtml (statSetSize dbstat) >> H.toHtml " stat records "
         H.toHtml (visitsLogSize dbstat) >> H.toHtml " visit records "
@@ -131,7 +121,6 @@ acidAction acidStats = do
 dstatusAction :: LocalNode -> ProcessId -> AcidState Stats -> TVar DStatus -> ServerPart Response
 dstatusAction node dbpid acidStats dvar = do
     dstatus <- lift $ readTVarIO dvar
-    dbstat <- liftIO $ queryDbStat node dbpid
     stats <- query' acidStats PeekStats
     ok $ toResponse $ H.body $ do
         H.toHtml (IxSet.size $ stats^.statsSet) >> H.toHtml " stat records "
@@ -193,6 +182,7 @@ withAcidDbs f =
     withAcid initialGeoDb $ \geodb -> f stats geodb
 
 runDaemon opts = do
+    putStrLn $ show opts
     dvar <- DStatus.new
     let conf = httpConf opts dvar
     transport <- liftM (either (error.("Create transport fail: "++).show) id) $ createTransport "127.0.0.1" "4444" defaultTCPParameters

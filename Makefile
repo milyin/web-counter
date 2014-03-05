@@ -8,3 +8,5 @@ clear:
 	cd src/daemon && make clear
 	cd src/site && make clear
 
+run:
+	cd dist && ./daemon

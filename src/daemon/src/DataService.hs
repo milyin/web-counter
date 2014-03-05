@@ -4,19 +4,23 @@
 
 module DataService where
 
-import Stat
 import Control.Distributed.Process
-import Data.Int
-import Data.Binary
-import GHC.Generics (Generic)
-import Data.Typeable
+import Control.Distributed.Process.Node(LocalNode)
+import Control.Distributed.Process.Node(runProcess)
+import Control.Lens
 import Control.Monad
-import Stat
 import Data.Acid
 import Data.Acid.Advanced
 import Data.Acid.Local
+import Data.Binary
+import Data.IORef(newIORef)
+import Data.IORef(readIORef)
+import Data.IORef(writeIORef)
+import Data.Int
+import Data.Typeable
+import GHC.Generics (Generic)
+import Stat
 import qualified Data.IxSet as IxSet
-import Control.Lens
 
 data DbStat = DbStat { statSetSize :: Int, visitsLogSize :: Int }
     deriving (Show, Eq, Typeable, Generic)
@@ -41,8 +45,18 @@ data DataResponse = RespOk
 
 instance Binary DataResponse
 
+queryDataService :: LocalNode -> ProcessId -> DataRequest -> IO DataResponse
+queryDataService node srvpid req = do
+    result <- newIORef $ RespOk
+    runProcess node $ do
+        self <- getSelfPid
+        send srvpid (self, req)
+        resp <- expect
+        liftIO $ writeIORef result resp
+    readIORef result
+
 serverProc :: AcidState Stats -> Process ProcessId
-serverProc acidStats= spawnLocal $ forever $ do 
+serverProc acidStats = spawnLocal $ forever $ do 
     req <- expect :: Process (ProcessId, DataRequest)
     serve req
     where
