@@ -9,7 +9,7 @@ import qualified Data.ByteString.Lazy.Char8 as L
 import Happstack.Server
 import qualified DStatus
 import DStatus (DStatus)
-import qualified Stat
+import Stat
 import Control.Exception.Base
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TVar
@@ -21,8 +21,6 @@ import Data.Acid
 import Data.Acid.Advanced
 import Data.Acid.Local
 import Data.Typeable
-import Stat
-import Geo
 import Data.Time.LocalTime
 import Data.Time.Clock
 import qualified Data.IxSet as IxSet
@@ -104,32 +102,18 @@ httpConf opts dvar = Conf {
     threadGroup = Nothing
     }
 
-cloudAction :: LocalNode -> ProcessId -> ServerPart Response
-cloudAction node dbpid = do
-    RespDbStat dbstat <- liftIO $ queryDataService node dbpid GetDbStat
-    ok $ toResponse $ H.body $ do
-        H.toHtml (statSetSize dbstat) >> H.toHtml " stat records "
-        H.toHtml (visitsLogSize dbstat) >> H.toHtml " visit records "
-
-acidAction :: AcidState Stats -> ServerPart Response
-acidAction acidStats = do
-    stats <- query' acidStats PeekStats
-    ok $ toResponse $ H.body $ do
-        H.toHtml (IxSet.size $ stats^.statsSet) >> H.toHtml " stat records "
-        H.toHtml (length $ stats^.visitsLog) >> H.toHtml " visit records "
-
-dstatusAction :: LocalNode -> ProcessId -> AcidState Stats -> TVar DStatus -> ServerPart Response
-dstatusAction node dbpid acidStats dvar = do
+dstatusAction :: LocalNode -> ProcessId -> TVar DStatus -> ServerPart Response
+dstatusAction node dbpid dvar = do
     dstatus <- lift $ readTVarIO dvar
-    stats <- query' acidStats PeekStats
+    RespDbStat stats <- liftIO $ queryData node dbpid GetDbStat
     ok $ toResponse $ H.body $ do
-        H.toHtml (IxSet.size $ stats^.statsSet) >> H.toHtml " stat records "
-        H.toHtml (length $ stats^.visitsLog) >> H.toHtml " visit records "
+        H.toHtml (stats^.statsSetSize) >> H.toHtml " stat records "
+        H.toHtml (stats^.visitsLogSize) >> H.toHtml " visit records "
         H.hr
         H.toHtml dstatus
 
-trAction :: AcidState Stats -> ServerPart Response
-trAction acidStats = do
+trAction :: LocalNode -> ProcessId -> ServerPart Response
+trAction node dbpid = do
 --    headers <- rqHeaders `liftM` askRq
 --    lift $ putStrLn $ show headers
     ip <- (C.pack . fst . rqPeer) `liftM` askRq
@@ -137,24 +121,25 @@ trAction acidStats = do
     user_agent <- coalesce (C.pack "") $ getHeader "user-agent" `liftM` askRq
     r <- C.pack `liftM` look "r"
     time <- liftIO getPOSIXTime
-    update' acidStats $ RecordVisit $ mkVisit (round time) ip referer user_agent r
+    let visit = mkVisit (round time) ip referer user_agent r
+    liftIO $ putData node dbpid $ PutVisit visit
     ok $ toResponse PointImg
     where
     coalesce :: v -> ServerPart (Maybe v) -> ServerPart v
     coalesce d a = a >>= \mv -> maybe (return d) return mv
 
-clearAction :: AcidState Stats -> ServerPart Response
-clearAction acidStats = do
-    update' acidStats ClearVisits
+clearVisitsLogAction :: LocalNode -> ProcessId -> ServerPart Response
+clearVisitsLogAction node dbpid = do
+    liftIO $ putData node dbpid $ ClearVisitsLog
     ok $ toResponse "Data cleared"
 
 -- jsonDataAction :: AcidState Stats -> ServerPart Response
 -- jsonDataAction
 
-showStatsAction :: AcidState Stats -> ServerPart Response
-showStatsAction acidStats = do
-    stats <- query' acidStats PeekStats
-    ok $ toResponse $ C.concat $ intersperse (C.pack "\n") $ map toCsvRow $ toList $ stats^.visitsLog
+showVisitsLogAction :: LocalNode -> ProcessId -> ServerPart Response
+showVisitsLogAction node dbpid = do
+    RespVisitsLog visits <- liftIO $ queryData node dbpid GetVisitsLog
+    ok $ toResponse $ C.concat $ intersperse (C.pack "\n") $ map toCsvRow visits
     where 
         toCsvRow :: Visit -> B.ByteString
         toCsvRow visit = B.concat $ intersperse (C.pack ",") [ 
@@ -173,31 +158,20 @@ main = do
 
 showDaemonHelp = putStrLn $ usageInfo "Available options:" options
 
-withAcid :: (Typeable a, IsAcidic a) => a -> (AcidState a ->  IO ()) -> IO ()
-withAcid init = bracket (openLocalState init) createCheckpointAndClose
-
-withAcidDbs :: (AcidState Stats -> AcidState GeoDb -> IO ()) -> IO ()
-withAcidDbs f = 
-    withAcid initialStats $ \stats ->
-    withAcid initialGeoDb $ \geodb -> f stats geodb
-
 runDaemon opts = do
     putStrLn $ show opts
     dvar <- DStatus.new
     let conf = httpConf opts dvar
     transport <- liftM (either (error.("Create transport fail: "++).show) id) $ createTransport "127.0.0.1" "4444" defaultTCPParameters
     node <- newLocalNode transport initRemoteTable
-    withAcidDbs $ \stats geodb -> runProcess node $ do
-        dbpid <- serverProc stats
+    runProcess node $ do
+        dbpid <- dbServerProc
         liftIO $ simpleHTTP conf $ mapServerPartT' (DStatus.measure dvar) $ msum [
                 -- actions
-                dir "dstatus"     $ dstatusAction node dbpid stats dvar,
-                dir "tr"          $ trAction stats,
-                dir "showstats"   $ showStatsAction stats,
-                dir "clear"       $ clearAction stats,
-                -- test actions
-                dir "test_cloud"  $ cloudAction node dbpid,
-                dir "test_acid"   $ acidAction stats,
+                dir "dstatus"     $ dstatusAction node dbpid dvar,
+                dir "tr"          $ trAction node dbpid,
+                dir "visits"      $ showVisitsLogAction node dbpid,
+                dir "clear"       $ clearVisitsLogAction node dbpid,
                 -- static files
                 dir "favicon.ico" $ serveFile (asContentType "image/vnd.microsoft.icon") "favicon.ico",
                 dir "html"        $ serveDirectory DisableBrowsing ["index.html"] "html",
